@@ -41,19 +41,19 @@ async def get_voice_list(id, current=None):
         return current_voices
     return all_voices
 
-        
 def check_for_new(checklist):
     while True:
         check = asyncio.run(get_voice_list(id, voices))
         if checklist != check:
             if data['notification'] == 'true':
-                window.display_message(head='Ура!', msg='Озвучка была обновлена!')
-            toast.show()
+                window.display_message(head='Ура!', msg=f'Озвучка была обновлена!')
+            toast.msg += f"\n{next(iter(set(check) - set(checklist)))}"
+            toast.show()     
             window.change_example(check)
             break
         print(f"original : {checklist}")
         print(F"current : {check}")
-        time.sleep(120)
+        time.sleep(300)
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
