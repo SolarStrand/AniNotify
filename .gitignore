@@ -6,3 +6,9 @@
 /prev_vers
 /sound
 /__pycache__
+encrypter.py
+encrypted_secrets.bin
+secret.json
+aninotify_icon.png
+aninotify_icon.ico
+.gitignore
