@@ -2,9 +2,65 @@ from gui import App
 from anime_parsers_ru import KodikParserAsync
 import asyncio
 import sys
+from PyQt6.QtCore import QWaitCondition, QMutex, QObject
 from PyQt6.QtWidgets import QApplication
 import time
 from winotify import Notification, audio
+import threading
+
+class Background(QObject):
+    def __init__(self):
+        super().__init__()
+        self.condition = QWaitCondition()
+        self.mutex = QMutex()
+        self.should_stop = False
+        self.main_thread = None
+        self.sleep_seconds = 300
+
+    def start(self,checklist,voices,id,notification,window):
+        self.should_stop = False
+        self.main_thread = threading.Thread(
+            target=self._run,
+            args=(checklist,voices,id,notification,window),
+            daemon=True
+        )
+        self.main_thread.start()
+
+
+    def _run(self, checklist, voices, id, notification,window):
+        # loop = asyncio.new_event_loop()
+        # asyncio.set_event_loop(loop)
+        # try:
+        while not self.should_stop:
+            check = asyncio.run(get_voice_list(id,voices))
+            if checklist != check:
+                if notification == 'true':
+                    window.display_message(head='Ура!', msg=f'Озвучка была обновлена!')
+                try:
+                    toast.msg += f"\n{next(iter(set(check) - set(checklist), 'Error'))}"
+                except:
+                    window.display_message(msg='Попробуйте изменить параметры и попробовать снова')
+                toast.show()     
+                window.change_example(check)
+                break
+            print(f"original : {checklist}")
+            print(F"current : {check}")
+            self.mutex.lock()
+            self.condition.wait(self.mutex, self.sleep_seconds*1000)
+            self.mutex.unlock()
+
+            if self.should_stop:
+                print('Actually stopped thread')
+                # could also emit a signal to tell gui to reverse buttons, but well
+                break
+        # finally:
+        #     loop.close()
+    def stop_thread(self):
+        self.should_stop = True
+        self.condition.wakeAll()
+        print('Stopped thread')
+        
+
 
 parser = KodikParserAsync()
 toast = Notification(
@@ -14,6 +70,7 @@ toast = Notification(
 )
 toast.set_audio(audio.Default, loop=False)
 id_type = 'shikimori'
+
 
 # async def get_anime_episode(name, season):
 #     try:
@@ -41,30 +98,12 @@ async def get_voice_list(id, current=None):
         return current_voices
     return all_voices
 
-def check_for_new(checklist):
-    while True:
-        check = asyncio.run(get_voice_list(id, voices))
-        if checklist != check:
-            if data['notification'] == 'true':
-                window.display_message(head='Ура!', msg=f'Озвучка была обновлена!')
-            toast.msg += f"\n{next(iter(set(check) - set(checklist)))}"
-            toast.show()     
-            window.change_example(check)
-            break
-        print(f"original : {checklist}")
-        print(F"current : {check}")
-        time.sleep(300)
-
-if __name__ == "__main__":
-    app = QApplication(sys.argv)
-    window = App()
-    window.show()
-    exit_code = app.exec()
+def start_search(window):
     data = window.get_saved_data()
     print(data)
-    name = data['name']
     voices = data['voices']
     id = data['id']
+    notification = data['notification']
     time.sleep(1)
     if data['example'] is None:
         print('example is None')
@@ -73,9 +112,39 @@ if __name__ == "__main__":
     else:
         print('already have example')
         example = data['example']
-    check_for_new(example)
+    
+    bg.start(example,voices,id,notification,window)
+
+
+
+if __name__ == "__main__":
+    app = QApplication(sys.argv)
+    window = App()
+    bg = Background()
+
+    window.search_started_signal.connect(lambda: start_search(window))
+    window.stop_search_signal.connect(lambda: bg.stop_thread())
+
+    window.show()
+    sys.exit(app.exec())
+
+
+    # after close change that
+    # data = window.get_saved_data()
+    # print(data)
+    # name = data['name']
+    # voices = data['voices']
+    # id = data['id']
+    # time.sleep(1)
+    # if data['example'] is None:
+    #     print('example is None')
+    #     example = asyncio.run(get_voice_list(id, sorted(voices)))
+    #     window.change_example(example)
+    # else:
+    #     print('already have example')
+    #     example = data['example']
+    # check_for_new(example)
 
     # last
-    sys.exit(exit_code)
     
     

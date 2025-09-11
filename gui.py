@@ -1,6 +1,6 @@
 import sys
 from PyQt6.QtGui import QFontMetrics
-from PyQt6.QtCore import Qt, QSettings
+from PyQt6.QtCore import Qt, QSettings, pyqtSignal
 from PyQt6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, 
     QLabel, QLineEdit, QPushButton, QMessageBox, QComboBox, QCheckBox, QSpacerItem, QListWidget, QAbstractItemView
@@ -9,15 +9,19 @@ import asyncio
 from anime_parsers_ru import KodikParserAsync
 
 class App(QWidget):
+    search_started_signal = pyqtSignal()
+    stop_search_signal = pyqtSignal()
+
     def __init__(self):
         super().__init__()
         self.settings = QSettings('Solar','AniNotify')
-        self.initUI()
-        self.load_data()
         self.search_example = self.settings.value('example', None)
         self.parser = KodikParserAsync()
         self.id_type = 'shikimori'
-
+        self.search_bool = False
+        self.initUI()
+        self.load_data()
+        
     def initUI(self):
         self.setWindowTitle("AniNotify")
         self.setGeometry(300,300,500,200)
@@ -168,12 +172,62 @@ class App(QWidget):
         self.saved_text_display.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         layout.addWidget(self.saved_text_display)
 
-        label = QLabel("Чтобы начать поиск, закройте программу")
-        label.setStyleSheet(
-            "font-size: 14px; font-weight: bold;"
-        )
-        label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(label)
+        final_button_layout = QHBoxLayout()
+        final_button_layout.setSpacing(0)
+        self.connect_button = QPushButton("Начать процесс поиска")
+        self.connect_button.setFixedSize(200,35)
+        self.connect_button.setStyleSheet("""
+            QPushButton {
+                background-color : #061c99; /* Blue */
+                color : white;
+                font-size: 14px;
+                margin: 2px -10px;
+                font-weight: bold;
+                border: 2px solid #dee2e6;
+                }
+            QPushButton:hover {
+                background-color: #0824c4;
+                }
+            QPushButton:pressed {
+                background-color: #0a2cf0;
+                }
+            QPushButton:disabled {
+                background-color: #010621;
+                color: #4c4c4d;
+                }
+        """)
+        self.connect_button.clicked.connect(self.start_search)
+
+        self.stop_thread_button = QPushButton("Стоп")
+        self.stop_thread_button.setFixedSize(60,35)
+        self.stop_thread_button.setStyleSheet("""
+            QPushButton {
+                background-color : #8f0303; /* Red */
+                color : white;
+                font-size: 14px;
+                font-weight: bold;
+                margin: 2px -10px;
+                border: 2px solid #dee2e6;
+                }
+            QPushButton:hover {
+                background-color: #bd0404;
+                }
+            QPushButton:pressed {
+                background-color: #f20505;
+                }
+            QPushButton:disabled {
+                background-color: #1f0000;
+                color: #4c4c4d;
+                }
+        """)
+        if self.search_bool:
+            self.stop_thread_button.setEnabled(True)
+        else:
+            self.stop_thread_button.setEnabled(False)
+        self.stop_thread_button.clicked.connect(self.stop_search)
+        final_button_layout.addWidget(self.connect_button)
+        final_button_layout.addWidget(self.stop_thread_button)
+        layout.addLayout(final_button_layout)
 
         self.setLayout(layout)
 
@@ -290,6 +344,23 @@ class App(QWidget):
         for key in self.saved_keys:
             data_dict[key] = self.settings.value(key,'')
         return data_dict
+    
+    def start_search(self):
+        self.search_bool = True
+        self.search_started_signal.emit()
+        # self.hide()
+        self.stop_thread_button.setEnabled(True)
+        self.connect_button.setEnabled(False)
+        print("Starting search")
+
+    def stop_search(self):
+        self.search_bool = False
+        print("Attempting stop thread")
+        self.stop_search_signal.emit()
+        self.stop_thread_button.setEnabled(False)
+        self.connect_button.setEnabled(True)
+
+
     
     def display_message(self, head="Ошибка", msg='Произошла ошибка!'):
         QMessageBox.information(self, head, msg)
