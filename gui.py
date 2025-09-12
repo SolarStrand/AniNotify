@@ -72,7 +72,12 @@ class WindowsStartupManager:
             return False
 
 class App(QWidget):
-    icon_path = "bin/aninotify_icon.ico"
+    relative_path = "bin/aninotify_icon.ico"
+    try:
+        base_path = sys._MEIPASS
+    except Exception:
+        base_path = os.path.abspath('.')
+    icon_path = os.path.join(base_path,relative_path)
     search_started_signal = pyqtSignal()
     stop_search_signal = pyqtSignal()
 
