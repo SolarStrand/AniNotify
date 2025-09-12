@@ -1,14 +1,78 @@
 import sys
-from PyQt6.QtGui import QFontMetrics
+import os
+from PyQt6.QtGui import QFontMetrics, QIcon, QAction
 from PyQt6.QtCore import Qt, QSettings, pyqtSignal
 from PyQt6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, 
-    QLabel, QLineEdit, QPushButton, QMessageBox, QComboBox, QCheckBox, QSpacerItem, QListWidget, QAbstractItemView
+    QLabel, QLineEdit, QPushButton, QMessageBox, QComboBox, QCheckBox, QSpacerItem, QListWidget, QAbstractItemView, QSystemTrayIcon, QMenu
 )
 import asyncio
+import time
 from anime_parsers_ru import KodikParserAsync
+import winreg
+
+class WindowsStartupManager:
+    def __init__(self, app_name):
+        self.app_name = app_name
+        self.registry_path = r"Software\Microsoft\Windows\CurrentVersion\Run"
+        
+    def enable_startup(self):
+        """Enable application to run on startup"""
+        try:
+            # Get the path to the current executable
+            exec_path = os.path.abspath(sys.argv[0])
+            
+            # Open the registry key for current user startup programs
+            key = winreg.OpenKey(
+                winreg.HKEY_CURRENT_USER,
+                self.registry_path,
+                0, winreg.KEY_SET_VALUE
+            )
+            
+            # Set the value
+            winreg.SetValueEx(key, self.app_name, 0, winreg.REG_SZ, f'"{exec_path}"')
+            winreg.CloseKey(key)
+            return True
+        except Exception as e:
+            print(f"Error enabling startup: {e}")
+            return False
+            
+    def disable_startup(self):
+        """Disable application from running on startup"""
+        try:
+            key = winreg.OpenKey(
+                winreg.HKEY_CURRENT_USER,
+                self.registry_path,
+                0, winreg.KEY_SET_VALUE
+            )
+            winreg.DeleteValue(key, self.app_name)
+            winreg.CloseKey(key)
+            return True
+        except FileNotFoundError:
+            # Key doesn't exist, which means it's already disabled
+            return True
+        except Exception as e:
+            print(f"Error disabling startup: {e}")
+            return False
+        
+    def is_enabled(self):
+        """Check if startup is enabled"""
+        try:
+            key = winreg.OpenKey(
+                winreg.HKEY_CURRENT_USER,
+                self.registry_path,
+                0, winreg.KEY_READ
+            )
+            winreg.QueryValueEx(key, self.app_name)
+            winreg.CloseKey(key)
+            return True
+        except FileNotFoundError:
+            return False
+        except Exception:
+            return False
 
 class App(QWidget):
+    icon_path = "bin/aninotify_icon.ico"
     search_started_signal = pyqtSignal()
     stop_search_signal = pyqtSignal()
 
@@ -18,7 +82,9 @@ class App(QWidget):
         self.search_example = self.settings.value('example', None)
         self.parser = KodikParserAsync()
         self.id_type = 'shikimori'
+        self.startup_manager = WindowsStartupManager("AniNotify")
         self.search_bool = False
+        self.setup_tray()
         self.initUI()
         self.load_data()
         
@@ -26,6 +92,7 @@ class App(QWidget):
         self.setWindowTitle("AniNotify")
         self.setGeometry(300,300,500,200)
         self.setMaximumSize(500,200)
+        self.setWindowIcon(QIcon(self.icon_path))
         space = QSpacerItem(30,15)
         
         layout = QVBoxLayout()
@@ -147,6 +214,14 @@ class App(QWidget):
         #
         
         layout.addSpacerItem(space)
+        startup_layout = QHBoxLayout()
+        label = QLabel("Автозапуск программы : ")
+
+        self.startup_checkbox = QCheckBox()
+        startup_layout.addWidget(label)
+        startup_layout.addWidget(self.startup_checkbox)
+        startup_layout.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        layout.addLayout(startup_layout)
 
 
         button_layout = QHBoxLayout()
@@ -160,9 +235,13 @@ class App(QWidget):
         #
         # checkmark
         #
-
-        self.checkbox = QCheckBox("Использовать доп. оповещение (помимо встроенного Windows)")
-        layout.addWidget(self.checkbox)
+        checkbox_layout = QHBoxLayout()
+        label = QLabel("Использовать доп. оповещение : ")
+        self.checkbox = QCheckBox()
+        checkbox_layout.addWidget(label)
+        checkbox_layout.addWidget(self.checkbox)
+        checkbox_layout.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        layout.addLayout(checkbox_layout)
 
         self.saved_text_display = QLabel('Сохранённые данные появятся здесь')
         self.saved_text_display.setStyleSheet(
@@ -222,14 +301,49 @@ class App(QWidget):
         """)
         if self.search_bool:
             self.stop_thread_button.setEnabled(True)
+            self.start_search_action.setEnabled(False)
         else:
             self.stop_thread_button.setEnabled(False)
+            self.start_search_action.setEnabled(True)
         self.stop_thread_button.clicked.connect(self.stop_search)
         final_button_layout.addWidget(self.connect_button)
         final_button_layout.addWidget(self.stop_thread_button)
         layout.addLayout(final_button_layout)
 
         self.setLayout(layout)
+
+    def setup_tray(self):
+        self.tray_icon = QSystemTrayIcon()
+        self.tray_icon.setIcon(QIcon(self.icon_path))
+        tray_menu = QMenu()
+        self.start_search_action = QAction("Начать поиск", self)
+        self.start_search_action.triggered.connect(self.start_search)
+        if not self.search_bool:
+            self.start_search_action.setEnabled(True)
+        else:
+            self.start_search_action.setEnabled(False)
+        tray_menu.addAction(self.start_search_action)
+
+        self.stop_search_action = QAction("Остановить поиск", tray_menu)
+        self.stop_search_action.triggered.connect(self.stop_search)
+        tray_menu.addAction(self.stop_search_action)
+
+        
+        self.show_action = QAction("Показать", tray_menu)
+        self.show_action.triggered.connect(lambda: self.show())
+        tray_menu.addAction(self.show_action)
+
+        self.quit_action = QAction("Выйти", tray_menu)
+        self.quit_action.triggered.connect(lambda: sys.exit(0))
+        tray_menu.addSeparator()
+        tray_menu.addAction(self.quit_action)
+
+        self.tray_icon.setContextMenu(tray_menu)
+
+        self.tray_icon.setToolTip("AniNotify")
+
+        self.tray_icon.show()
+
 
     async def get_title_list(self,name):
         result = await self.parser.search(title=name)
@@ -314,6 +428,17 @@ class App(QWidget):
 
         self.search_example = None
 
+        if self.startup_checkbox.isChecked():
+            if self.startup_manager.enable_startup():
+                self.display_message(head="Успешно", msg="Автозапуск успешно установлен")
+            else:
+                self.display_message()
+        else:
+            if self.startup_manager.disable_startup():
+                self.display_message(head="Успешно", msg="Автозапуск успешно удалён")
+            else:
+                self.display_message()
+
         self.save_data() 
 
         self.set_saved_text()
@@ -336,6 +461,8 @@ class App(QWidget):
         
         self.checkbox.setChecked(self.settings.value('notification',True,type=bool))
 
+        self.startup_checkbox.setChecked(self.startup_manager.is_enabled())
+
         self.set_saved_text()
 
     def get_saved_data(self):
@@ -348,17 +475,22 @@ class App(QWidget):
     def start_search(self):
         self.search_bool = True
         self.search_started_signal.emit()
-        # self.hide()
+        self.hide()
         self.stop_thread_button.setEnabled(True)
         self.connect_button.setEnabled(False)
+        self.start_search_action.setEnabled(False)
+        self.stop_search_action.setEnabled(True)
         print("Starting search")
 
     def stop_search(self):
         self.search_bool = False
         print("Attempting stop thread")
         self.stop_search_signal.emit()
+        time.sleep(3)
         self.stop_thread_button.setEnabled(False)
         self.connect_button.setEnabled(True)
+        self.start_search_action.setEnabled(True)
+        self.stop_search_action.setEnabled(False)
 
 
     
