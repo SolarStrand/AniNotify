@@ -125,7 +125,7 @@ if __name__ == "__main__":
 
     window.search_started_signal.connect(lambda: start_search(window))
     window.stop_search_signal.connect(lambda: bg.stop_thread())
-    if not startup_manager.is_enabled():
+    if not window.saved_startup_bool:
         window.show()
     else:
         window.stop_thread_button.setEnabled(True)

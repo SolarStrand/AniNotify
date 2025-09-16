@@ -1,15 +1,38 @@
 import sys
 import os
 from PyQt6.QtGui import QFontMetrics, QIcon, QAction
-from PyQt6.QtCore import Qt, QSettings, pyqtSignal
+from PyQt6.QtCore import Qt, QSettings, pyqtSignal, QObject
 from PyQt6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, 
-    QLabel, QLineEdit, QPushButton, QMessageBox, QComboBox, QCheckBox, QSpacerItem, QListWidget, QAbstractItemView, QSystemTrayIcon, QMenu
+    QLabel, QLineEdit, QPushButton, QMessageBox, QComboBox, QCheckBox, QSpacerItem, QListWidget, QAbstractItemView, QSystemTrayIcon, QMenu, QTextEdit
 )
 import asyncio
 import time
 from anime_parsers_ru import KodikParserAsync
 import winreg
+
+class StdoutWindow(QWidget):
+    def __init__(self):
+        super().__init__()
+        self.text_edit = QTextEdit()
+        self.text_edit.setReadOnly(True)
+        self.setWindowTitle("Debug")
+
+        layout = QVBoxLayout()
+        layout.addWidget(self.text_edit)
+        self.setLayout(layout)
+    
+    def append_text(self,text):
+        self.text_edit.append(text)
+    
+class EmittingStream(QObject):
+    text_written = pyqtSignal(str)
+
+    def write(self,text):
+        self.text_written.emit(str(text))
+    
+    def flush(self):
+        pass
 
 class WindowsStartupManager:
     def __init__(self, app_name):
@@ -54,22 +77,6 @@ class WindowsStartupManager:
         except Exception as e:
             print(f"Error disabling startup: {e}")
             return False
-        
-    def is_enabled(self):
-        """Check if startup is enabled"""
-        try:
-            key = winreg.OpenKey(
-                winreg.HKEY_CURRENT_USER,
-                self.registry_path,
-                0, winreg.KEY_READ
-            )
-            winreg.QueryValueEx(key, self.app_name)
-            winreg.CloseKey(key)
-            return True
-        except FileNotFoundError:
-            return False
-        except Exception:
-            return False
 
 class App(QWidget):
     relative_path = "bin/aninotify_icon.ico"
@@ -89,6 +96,10 @@ class App(QWidget):
         self.id_type = 'shikimori'
         self.startup_manager = WindowsStartupManager("AniNotify")
         self.search_bool = False
+        self.output_window = StdoutWindow()
+        self.stream = EmittingStream()
+        self.stream.text_written.connect(self.output_window.append_text)
+        sys.stdout = self.stream
         self.setup_tray()
         self.initUI()
         self.load_data()
@@ -228,6 +239,14 @@ class App(QWidget):
         startup_layout.setAlignment(Qt.AlignmentFlag.AlignLeft)
         layout.addLayout(startup_layout)
 
+        checkbox_layout = QHBoxLayout()
+        label = QLabel("Использовать доп. оповещение : ")
+        self.notif_checkbox = QCheckBox()
+        checkbox_layout.addWidget(label)
+        checkbox_layout.addWidget(self.notif_checkbox)
+        checkbox_layout.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        layout.addLayout(checkbox_layout)
+
 
         button_layout = QHBoxLayout()
 
@@ -240,13 +259,6 @@ class App(QWidget):
         #
         # checkmark
         #
-        checkbox_layout = QHBoxLayout()
-        label = QLabel("Использовать доп. оповещение : ")
-        self.checkbox = QCheckBox()
-        checkbox_layout.addWidget(label)
-        checkbox_layout.addWidget(self.checkbox)
-        checkbox_layout.setAlignment(Qt.AlignmentFlag.AlignLeft)
-        layout.addLayout(checkbox_layout)
 
         self.saved_text_display = QLabel('Сохранённые данные появятся здесь')
         self.saved_text_display.setStyleSheet(
@@ -334,9 +346,17 @@ class App(QWidget):
         tray_menu.addAction(self.stop_search_action)
 
         
-        self.show_action = QAction("Показать", tray_menu)
+        self.show_action = QAction("Показать окно", tray_menu)
         self.show_action.triggered.connect(lambda: self.show())
         tray_menu.addAction(self.show_action)
+
+        self.hide_action = QAction("Скрыть окно", tray_menu)
+        self.hide_action.triggered.connect(lambda: self.hide())
+        tray_menu.addAction(self.hide_action)
+
+        self.show_debug_action = QAction("Debug", tray_menu)
+        self.show_debug_action.triggered.connect(lambda: self.output_window.show())
+        tray_menu.addAction(self.show_debug_action)
 
         self.quit_action = QAction("Выйти", tray_menu)
         self.quit_action.triggered.connect(lambda: sys.exit(0))
@@ -416,24 +436,38 @@ class App(QWidget):
 
         self.settings.setValue('name', self.saved_anime_name)
         self.settings.setValue('voices', self.saved_voices)
-        self.settings.setValue('notification', self.checkbox.isChecked())
+        self.settings.setValue('notification', self.saved_notif_bool)
         self.settings.setValue('example', self.search_example)
         self.settings.setValue('id', self.saved_id)
+        self.settings.setValue('startup',self.saved_startup_bool)
         self.settings.sync()
 
     def set_saved_text(self):
-        self.saved_text_display.setText(f"""Текущие параметры :\nАниме : {self.saved_anime_name}\nОзвучки : {', '.join(self.saved_voices)}\nДоп. оповещение : {'Да' if self.checkbox.isChecked() else 'Нет'}""")
+        try:
+            self.saved_text_display.setText(   
+                f"Текущие параметры :\n"
+                f"Аниме : {self.saved_anime_name}\n"
+                f"Озвучки : {', '.join(self.saved_voices)}\n"
+                f"Доп. оповещение : {'Да' if self.saved_notif_bool else 'Нет'}\n"
+                f"Автозапуск : {'Да' if self.saved_startup_bool else 'Нет'}")
+        except:
+            print('error in setting saved text display')
+    
     def save_text(self):
 
         self.saved_id = self.anime_id
 
-        self.saved_anime_name = self.anime_name_input.text()
+        self.saved_anime_name = self.anime_name_box.currentText()
 
         self.saved_voices = [i.text() for i in self.voice_list_widget.selectedItems()]
 
+        self.saved_startup_bool = self.startup_checkbox.isChecked()
+
+        self.saved_notif_bool = self.notif_checkbox.isChecked()
+
         self.search_example = None
 
-        if self.startup_checkbox.isChecked():
+        if self.saved_startup_bool:
             if self.startup_manager.enable_startup():
                 self.display_message(head="Успешно", msg="Автозапуск успешно установлен")
             else:
@@ -463,10 +497,12 @@ class App(QWidget):
         #     if item.text() in self.saved_voices:
         #         item.setSelected(True)
         self.saved_id = self.settings.value('id','',type=str)
-        
-        self.checkbox.setChecked(self.settings.value('notification',True,type=bool))
 
-        self.startup_checkbox.setChecked(self.startup_manager.is_enabled())
+        self.saved_notif_bool = self.settings.value('notification',True,type=bool)
+        self.notif_checkbox.setChecked(self.saved_notif_bool)
+        
+        self.saved_startup_bool = self.settings.value('startup',False,type=bool)
+        self.startup_checkbox.setChecked(self.saved_startup_bool)
 
         self.set_saved_text()
 
