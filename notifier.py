@@ -128,6 +128,7 @@ if __name__ == "__main__":
     if not window.saved_startup_bool:
         window.show()
     else:
+        # window.setup_tray()
         window.stop_thread_button.setEnabled(True)
         window.connect_button.setEnabled(False)
         window.start_search_action.setEnabled(False)
