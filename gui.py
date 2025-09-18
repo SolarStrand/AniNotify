@@ -6,10 +6,10 @@ from PyQt6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, 
     QLabel, QLineEdit, QPushButton, QMessageBox, QComboBox, QCheckBox, QSpacerItem, QListWidget, QAbstractItemView, QSystemTrayIcon, QMenu, QTextEdit
 )
-import asyncio
+import time
 from anime_parsers_ru import KodikParserAsync
 import winreg
-import threading
+import asyncio
 
 class StdoutWindow(QWidget):
     def __init__(self):
@@ -101,7 +101,7 @@ class App(QWidget):
         self.stream = EmittingStream()
         self.stream.text_written.connect(self.output_window.append_text)
         sys.stdout = self.stream
-        threading.Timer(3.0, self.setup_tray())
+        self.setup_tray()
         self.initUI()
         self.load_data()
         
@@ -524,11 +524,11 @@ class App(QWidget):
         self.stop_search_action.setEnabled(True)
         print("Starting search")
 
-    async def stop_search(self):
+    def stop_search(self):
         self.search_bool = False
         print("Attempting stop thread")
         self.stop_search_signal.emit()
-        await asyncio.sleep(3)
+        time.sleep(3)
         self.stop_thread_button.setEnabled(False)
         self.connect_button.setEnabled(True)
         self.start_search_action.setEnabled(True)
