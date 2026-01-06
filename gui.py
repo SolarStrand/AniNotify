@@ -83,7 +83,7 @@ class WindowsStartupManager:
             return False
 
 class App(QWidget):
-    relative_path = "bin/aninotify_icon.ico"
+    relative_path = "aninotify_icon.ico"
     try:
         base_path = sys._MEIPASS
     except Exception:
