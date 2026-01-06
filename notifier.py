@@ -85,7 +85,7 @@ id_type = 'shikimori'
 #         window.display_message()
 
 async def get_title_list(name):
-    result = await parser.search(title=name)
+    result = await parser.search(title=name, only_anime=True)
     titles = [title['title'] for title in result]
     IDs = [id[f'{id_type}_id'] for id in result]
     return titles, IDs

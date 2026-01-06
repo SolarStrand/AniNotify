@@ -1,7 +1,7 @@
 import sys
 import os
 from PyQt6.QtGui import QFontMetrics, QIcon, QAction
-from PyQt6.QtCore import Qt, QSettings, pyqtSignal, QObject
+from PyQt6.QtCore import Qt, QSettings, pyqtSignal, QObject, QEvent
 from PyQt6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, 
     QLabel, QLineEdit, QPushButton, QMessageBox, QComboBox, QCheckBox, QSpacerItem, QListWidget, QAbstractItemView, QSystemTrayIcon, QMenu, QTextEdit
@@ -11,7 +11,7 @@ from anime_parsers_ru import KodikParserAsync
 import winreg
 import asyncio
 
-class StdoutWindow(QWidget):
+class DebugWindow(QWidget):
     def __init__(self):
         super().__init__()
         self.text_edit = QTextEdit()
@@ -24,6 +24,10 @@ class StdoutWindow(QWidget):
     
     def append_text(self,text):
         self.text_edit.append(text)
+
+    def closeEvent(self, event):
+        self.hide()
+        event.ignore()
     
 class EmittingStream(QObject):
     text_written = pyqtSignal(str)
@@ -97,7 +101,7 @@ class App(QWidget):
         self.id_type = 'shikimori'
         self.startup_manager = WindowsStartupManager("AniNotify")
         self.search_bool = False
-        self.output_window = StdoutWindow()
+        self.output_window = DebugWindow()
         self.stream = EmittingStream()
         self.stream.text_written.connect(self.output_window.append_text)
         sys.stdout = self.stream
@@ -330,6 +334,10 @@ class App(QWidget):
 
         self.setLayout(layout)
 
+    def changeEvent(self, event):
+        if event.type() == QEvent.Type.WindowStateChange:
+            if self.isMinimized():
+                self.hide()
     def setup_tray(self):
         self.tray_icon = QSystemTrayIcon()
         self.tray_icon.setIcon(QIcon(self.icon_path))
@@ -345,6 +353,7 @@ class App(QWidget):
         self.stop_search_action = QAction("Остановить поиск", tray_menu)
         self.stop_search_action.triggered.connect(self.stop_search)
         tray_menu.addAction(self.stop_search_action)
+        tray_menu.addSeparator()
 
         
         self.show_action = QAction("Показать окно", tray_menu)
@@ -372,7 +381,7 @@ class App(QWidget):
 
 
     async def get_title_list(self,name):
-        result = await self.parser.search(title=name)
+        result = await self.parser.search(title=name, only_anime=True)
         titles = [title['title'] for title in result]
         IDs = [id[f'{self.id_type}_id'] for id in result]
         return titles, IDs
@@ -382,11 +391,9 @@ class App(QWidget):
         return [i['name'] for i in info['translations']]
 
     def attempt_search(self):
-        self.search_name = self.settings.value('name', '', type=str)
+        self.search_name = self.anime_name_input.text()
         try:
-            self.title_list, self.id_list = asyncio.run(
-                self.get_title_list(self.search_name)
-            )
+            self.title_list, self.id_list = asyncio.run(self.get_title_list(self.search_name))
         
             self.anime_name_box.clear()
             if self.title_list:
@@ -397,7 +404,7 @@ class App(QWidget):
                 self.anime_name_box.addItem("Аниме не найдено")
                 self.anime_name_box.setEnabled(False)
         except:
-            self.display_message()
+            self.display_message(msg='Ошибка при попытке найти аниме')
         # self.voice_name_box.clear()
 
         # if self.voice_list:
@@ -422,7 +429,7 @@ class App(QWidget):
                 self.voice_list_widget.addItem("Озвучки не найдены")
                 self.voice_list_widget.setEnabled(False)
         except:
-            self.display_message()
+            self.display_message(msg="Ошибка при попытке найти озвучки")
 
     def calc_max_text_width(self, combo_box):
         self.font_metrics = QFontMetrics(combo_box.font())
@@ -458,7 +465,7 @@ class App(QWidget):
 
         self.saved_id = self.anime_id
 
-        self.saved_anime_name = self.anime_name_box.currentText()
+        self.saved_anime_name = self.anime_name_input.text()
 
         self.saved_voices = [i.text() for i in self.voice_list_widget.selectedItems()]
 
